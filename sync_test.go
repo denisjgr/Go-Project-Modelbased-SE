@@ -225,3 +225,16 @@ func TestWaitGroup(t *testing.T) {
 		}
 	})
 }
+
+// Test 7: Kanäle: Buffered Channel send/receive ohne Deadlock
+func TestChannelBuffer(t *testing.T) {
+	synctest.Run(func() {
+		ch := make(chan int, 1)
+		ch <- 42
+
+		val := <-ch
+		if val != 42 {
+			t.Fatalf("expected 42, got %d", val)
+		}
+	})
+}

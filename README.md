@@ -84,3 +84,5 @@ Here we are testing the sync.Once object which will perform exactly one action.
 Here we are testing the sync.Mutex Lock/Unlock capabilities.
 ## TestWaitGroup
 Here we are testing sync.WaitGroup which waits for a collection of goroutines to finish.
+## TestChannelBuffer
+Here we have another simple buffered channel test within a synctest.Run environment.
