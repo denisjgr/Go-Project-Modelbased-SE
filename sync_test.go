@@ -201,3 +201,27 @@ func TestMutexLockUnlock(t *testing.T) {
 		// Wenn wir hier ankommen, heißt das: keine Deadlocks mehr
 	})
 }
+
+// Test 6: sync.WaitGroup: Warte auf alle Done-Calls
+func TestWaitGroup(t *testing.T) {
+	synctest.Run(func() {
+		var wg sync.WaitGroup
+		const routines = 3
+		counter := 0
+
+		wg.Add(routines)
+		for i := 0; i < routines; i++ {
+			go func() {
+				defer wg.Done()
+				counter++
+			}()
+		}
+
+		// bis alle Done() aufgerufen wurden, bleibt Wait() blockiert
+		synctest.Wait()
+		// nachdem alle wg.Done waren, sollte counter==routines sein
+		if counter != routines {
+			t.Fatalf("expected counter %d, got %d", routines, counter)
+		}
+	})
+}
