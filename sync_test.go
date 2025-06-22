@@ -61,3 +61,24 @@ func TestAfterFuncSyncTest(t *testing.T) {
 		}
 	})
 }
+
+// Test 2: context.WithTimeout
+func TestWithTimeout(t *testing.T) {
+	synctest.Run(func() {
+		const timeout = 5 * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		time.Sleep(timeout - time.Nanosecond)
+		synctest.Wait()
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("before timeout, ctx.Err() = %v; want nil", err)
+		}
+
+		time.Sleep(time.Nanosecond)
+		synctest.Wait()
+		if err := ctx.Err(); err != context.DeadlineExceeded {
+			t.Fatalf("after timeout, ctx.Err() = %v; want DeadlineExceeded", err)
+		}
+	})
+}
