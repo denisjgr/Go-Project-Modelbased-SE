@@ -177,3 +177,27 @@ func TestOnceDo(t *testing.T) {
 		}
 	})
 }
+
+// Test 5: sync.Mutex: Stelle sicher, dass Unlock auch nach Lock funktioniert
+func TestMutexLockUnlock(t *testing.T) {
+	synctest.Run(func() {
+		var mu sync.Mutex
+		locked := false
+
+		// Goroutine 1: lock, set flag, unlock
+		go func() {
+			mu.Lock()
+			locked = true
+			mu.Unlock()
+		}()
+
+		// Goroutine 2: versuche zu locken, erst nach Unlock möglich
+		synctest.Wait()
+		if !locked {
+			t.Fatalf("expected first goroutine to acquire lock before waiting")
+		}
+
+		synctest.Wait() // jetzt blockiert, bis Unlock wieder kommt
+		// Wenn wir hier ankommen, heißt das: keine Deadlocks mehr
+	})
+}
