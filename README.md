@@ -82,3 +82,5 @@ Here we are testing the net/http package's handling of the 100 Continue response
 Here we are testing the sync.Once object which will perform exactly one action.
 ## TestMutexLockUnlock
 Here we are testing the sync.Mutex Lock/Unlock capabilities.
+## TestWaitGroup
+Here we are testing sync.WaitGroup which waits for a collection of goroutines to finish.
