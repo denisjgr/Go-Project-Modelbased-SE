@@ -1,7 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"io"
+	"net"
+	"net/http"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -79,6 +84,78 @@ func TestWithTimeout(t *testing.T) {
 		synctest.Wait()
 		if err := ctx.Err(); err != context.DeadlineExceeded {
 			t.Fatalf("after timeout, ctx.Err() = %v; want DeadlineExceeded", err)
+		}
+	})
+}
+
+// Test 3: HTTP Expect: 100-continue Mechanismus
+func TestHTTPExpectContinue(t *testing.T) {
+	synctest.Run(func() {
+		srvConn, cliConn := net.Pipe()
+		defer func(srvConn net.Conn) {
+			err := srvConn.Close()
+			if err != nil {
+
+			}
+		}(srvConn)
+		defer func(cliConn net.Conn) {
+			err := cliConn.Close()
+			if err != nil {
+
+			}
+		}(cliConn)
+
+		tr := &http.Transport{
+			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				return cliConn, nil
+			},
+			ExpectContinueTimeout: 5 * time.Second,
+		}
+
+		body := "request body"
+		go func() {
+			req, _ := http.NewRequest("PUT", "http://test.tld/", strings.NewReader(body))
+			req.Header.Set("Expect", "100-continue")
+			resp, err := tr.RoundTrip(req)
+			if err != nil {
+				t.Errorf("RoundTrip: unexpected error %v", err)
+			} else {
+				err := resp.Body.Close()
+				if err != nil {
+					return
+				}
+			}
+		}()
+
+		req, err := http.ReadRequest(bufio.NewReader(srvConn))
+		if err != nil {
+			t.Fatalf("ReadRequest: %v", err)
+		}
+
+		var gotBody strings.Builder
+		go func() {
+			_, err := io.Copy(&gotBody, req.Body)
+			if err != nil {
+
+			}
+		}()
+		synctest.Wait()
+		if got := gotBody.String(); got != "" {
+			t.Fatalf("before sending 100 Continue, unexpectedly read body: %q", got)
+		}
+
+		_, err = srvConn.Write([]byte("HTTP/1.1 100 Continue\r\n\r\n"))
+		if err != nil {
+			return
+		}
+		synctest.Wait()
+		if got := gotBody.String(); got != body {
+			t.Fatalf("after sending 100 Continue, read body %q, want %q", got, body)
+		}
+
+		_, err = srvConn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+		if err != nil {
+			return
 		}
 	})
 }
