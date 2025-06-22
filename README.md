@@ -78,3 +78,5 @@ Here we are testing the context.AfterFunc function with and without synctest.
 Here we are testing the context.WithTimeout function with the help of bubbles and their fake clocks.
 ## TestHTTPExpectContinue
 Here we are testing the net/http package's handling of the 100 Continue response.
+## TestOnceDo
+Here we are testing the sync.Once object which will perform exactly one action.

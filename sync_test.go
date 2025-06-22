@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -156,6 +157,23 @@ func TestHTTPExpectContinue(t *testing.T) {
 		_, err = srvConn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 		if err != nil {
 			return
+		}
+	})
+}
+
+// Test 4: sync.Once: Verify, dass Do genau einmal ausgeführt wird
+func TestOnceDo(t *testing.T) {
+	synctest.Run(func() {
+		var once sync.Once
+		counter := 0
+
+		// mehrfach aufrufen
+		once.Do(func() { counter++ })
+		once.Do(func() { counter++ })
+		once.Do(func() { counter++ })
+
+		if counter != 1 {
+			t.Fatalf("expected Do to run once, but ran %d times", counter)
 		}
 	})
 }
