@@ -238,3 +238,31 @@ func TestChannelBuffer(t *testing.T) {
 		}
 	})
 }
+
+// Test 8: context cancellation im select: sobald cancel(), wird der Case ausgewählt
+func TestContextCancelSelect(t *testing.T) {
+	synctest.Run(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		result := make(chan bool, 1)
+
+		go func() {
+			select {
+			case <-ctx.Done():
+				result <- true
+			}
+		}()
+
+		// jetzt abbrechen
+		cancel()
+		synctest.Wait()
+
+		select {
+		case ok := <-result:
+			if !ok {
+				t.Fatal("erwartet true im Ergebnis-Kanal")
+			}
+		default:
+			t.Fatal("erwartet eine Nachricht im Ergebnis-Kanal nach cancel()")
+		}
+	})
+}

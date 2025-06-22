@@ -86,3 +86,5 @@ Here we are testing the sync.Mutex Lock/Unlock capabilities.
 Here we are testing sync.WaitGroup which waits for a collection of goroutines to finish.
 ## TestChannelBuffer
 Here we have another simple buffered channel test within a synctest.Run environment.
+## TestContextCancelSelect
+Here we are testing the context.WithCancel function with synctest.
