@@ -1,90 +1,129 @@
-# Testing concurrent code with testing/synctest
+## Einleitung
 
-Link topic from The Go Blog: https://go.dev/blog/synctest
+In parallelen Anwendungen sind sauber getestete und fehlerfreie Synchronisationsmechanismen unverzichtbar, um Data Races und Deadlocks zu verhindern. Seit Go 1.21 kann das `testing/synctest`-Paket über `GOEXPERIMENT=synctest` aktiviert werden. Es erlaubt das Schreiben deterministischer Tests für concurrency-sensitive Komponenten aus den Paketen `sync` und `context`, indem es die Ausführung von Goroutinen überwacht und kontrolliert.
 
-Used Go version: go 1.24.1 windows/amd64
+## Welches Problem wird gelöst?
 
-Used Git version: 2.21.0.windows.1
+Herkömmliche Tests für nebenläufigen Code beruhen häufig auf `time.Sleep` oder komplexen channel-Konstrukten, um bestimmte Ablaufpfade von Goroutinen zu erzeugen. Diese Ansätze sind jedoch anfällig für flackernde („flaky“) Tests, da das tatsächliche Scheduling von der Laufzeitumgebung abhängt. Außerdem erschwert die fehlende Kontrolle über die genaue Reihenfolge von Ereignissen das Debugging, und viele mögliche Kombinationen von Goroutine-Interaktionen bleiben ungetestet.
 
-## What issue is meant to be solved?
-### Issue
-The synctest package addresses the difficulty of writing correct concurrency tests for 
-data structures from the sync package (e.g., sync.Map, sync.Pool, sync.WaitGroup). Traditional tests 
-for concurrent operations are error-prone because they rely on timing-based primitives like time.Sleep 
-or complex synchronization mechanisms that:
-    
-    - Cause flaky tests (non-deterministic behavior)
-    - Are difficult to debug
-    - Enable incomplete test coverage
+## Die Lösung mit `synctest`
 
-### Solution
-synctest provides deterministic testing utilities that:
+Mit `synctest` werden Tests in einer kontrollierten Testumgebung (instrumented test harness) ausgeführt, die alle gestarteten Goroutinen koordiniert an definierten Haltepunkten mit `synctest.Wait` pausieren lässt. So kann man zum Beispiel prüfen, dass ein Callback erst nach dem Aufruf von `cancel()` ausgelöst wird, statt auf unsichere Sleeps zu setzen. In Verbindung mit `synctest.Explore` lassen sich darüber hinaus automatisiert alle denkbaren Scheduling-Pfade durchspielen, um seltene Race-Bedingungen systematisch zu entdecken. Indem `synctest` gezielt Konflikte provoziert und wiederholbar verifiziert, entstehen keine zufälligen Testfehler mehr.
 
-    - Enable control over goroutine scheduling in tests
-    - Deliberately provoke and verify race conditions
-    - Enforce complete coverage of all execution paths
+### Beispiel: Deterministischer Test für `context.AfterFunc`
 
+Im konventionellen Test wird `time.Sleep` verwendet, um das Timing des Callbacks sicherzustellen:
 
-## What are typical use cases?
+```go
+func TestAfterFunc(t *testing.T) {
+    ctx, cancel := context.WithCancel(context.Background())
+    called := make(chan struct{})
+    context.AfterFunc(ctx, func() { close(called) })
 
-    - Testing sync.Map operations (Store, Load, Delete) under race conditions.
-    - Validating sync.Pool behavior during concurrent access.
-    - Ensuring sync.WaitGroup correctly handles Done()/Wait()
-    - Reproducing rare race conditions in a controlled environment
+    // Vor cancel() darf der Callback nicht ausgelöst werden
+    select {
+    case <-called:
+        t.Fatalf("wurde zu früh aufgerufen")
+    case <-time.After(10 * time.Millisecond):
+    }
 
-## Is the solution provided fully satisfactory?
-### Advantages
+    cancel()
+    select {
+    case <-called:
+    case <-time.After(10 * time.Millisecond):
+        t.Fatalf("wurde nicht aufgerufen nach Cancel")
+    }
+}
+```
 
-    - Determinism: Tests are reproducible and flaky-free
-    - Simplification: Replaces complex time.Sleep / channel constructs with clear APIs
-    - Complete coverage: Enforces all possible scheduling paths (e.g., via synctest.Explore)
-    - Integration: Directly available in the standard library from Go 1.21
+Mit `synctest` lässt sich dieser Ablauf ohne Sleeps und deterministisch prüfen:
 
-### Limitations
+```go
+func TestAfterFuncSyncTest(t *testing.T) {
+    synctest.Run(func() {
+        ctx, cancel := context.WithCancel(context.Background())
+        called := false
+        context.AfterFunc(ctx, func() { called = true })
 
-    - Learning curve: New concepts like "scheduling traces" require rethinking
-    - Overhead: Tests run slower as all scheduling paths are executed
-    - Not a replacement for -race: Static analysis via go test -race remains necessary
+        synctest.Wait() // alle Goroutinen pausieren
+        if called {
+            t.Fatalf("wurde zu früh aufgerufen")
+        }
 
-### Conclusion
-The solution is practical and valuable but not a panacea. It ideally complements existing tools for 
-deterministic concurrency testing.
+        cancel()
+        synctest.Wait() // Callback nach cancel() verifizieren
+        if !called {
+            t.Fatalf("wurde nicht aufgerufen nach Cancel")
+        }
+    })
+}
+```
 
-## Is the topic of great importance?
-Yes, for three reasons:
-### 1. Critical safety:
-Concurrency bugs cause severe issues (data races, deadlocks). synctest enables systematic detection.
-### 2. Productivity boost:
-Developers save time through
+## Anwendungsbeispiele
 
-    - Elimination of flaky tests
-    - Targeted reproduction of race conditions
-    - Automated coverage of all scheduling paths
-### 3. Ecosystem impact:
-Standardized testing of sync components promotes more robust libraries (e.g., database clients, caches).
+In der Praxis wird `synctest` eingesetzt, um unter anderem `sync.Map`-Operationen wie `Store`, `Load` und `Delete` unter kontrollierten Race-Bedingungen zu testen. Ebenso kann man das Verhalten von `sync.Pool` beim gleichzeitigen Aus- und Einlagern von Objekten überprüfen oder sicherstellen, dass `sync.WaitGroup` mit `Add`, `Done` und `Wait` korrekt zusammenspielt. So lässt sich zum Beispiel mit nur wenigen Zeilen Code verifizieren, dass `sync.Once` tatsächlich nur einmal ausgeführt wird, selbst wenn `Do` mehrfach aufgerufen wird:
 
+```go
+func TestOnceDo(t *testing.T) {
+    synctest.Run(func() {
+        var once sync.Once
+        counter := 0
+        once.Do(func() { counter++ })
+        once.Do(func() { counter++ })
+        once.Do(func() { counter++ })
 
-# Setting up the programming environment
-    - Installing Go version 1.24.1 windows/amd64
-    - Set up GoLand IDE
-    - Create new Project and link it with new GitHub repository
-    - Set environmental variable for the use of synctest (GOEXPERIMENT=synctest)
+        if counter != 1 {
+            t.Fatalf("Do sollte genau einmal ausgeführt werden, lief aber %d mal", counter)
+        }
+    })
+}
+```
 
-# Code examples
-In sync_test.go there are the examples from the Go Blog post.
-## TestAfterFunc and TestAfterFuncSyncTest
-Here we are testing the context.AfterFunc function with and without synctest.
-## TestWithTimeout
-Here we are testing the context.WithTimeout function with the help of bubbles and their fake clocks.
-## TestHTTPExpectContinue
-Here we are testing the net/http package's handling of the 100 Continue response.
-## TestOnceDo
-Here we are testing the sync.Once object which will perform exactly one action.
-## TestMutexLockUnlock
-Here we are testing the sync.Mutex Lock/Unlock capabilities.
-## TestWaitGroup
-Here we are testing sync.WaitGroup which waits for a collection of goroutines to finish.
-## TestChannelBuffer
-Here we have another simple buffered channel test within a synctest.Run environment.
-## TestContextCancelSelect
-Here we are testing the context.WithCancel function with synctest.
+Und selbst verteilte Zähler lassen sich einfach überprüfen, indem man etwa drei Goroutinen startet und wartet, bis alle `Done()` aufgerufen haben:
+
+```go
+func TestWaitGroup(t *testing.T) {
+    synctest.Run(func() {
+        var wg sync.WaitGroup
+        const routines = 3
+        counter := 0
+
+        wg.Add(routines)
+        for i := 0; i < routines; i++ {
+            go func() {
+                defer wg.Done()
+                counter++
+            }()
+        }
+
+        synctest.Wait() // blockiert, bis alle Done() erfolgt sind
+        if counter != routines {
+            t.Fatalf("gewartet auf %d Goroutinen, tatsächlich %d", routines, counter)
+        }
+    })
+}
+```
+
+## Bewertung und Grenzen
+
+`testing/synctest` macht Nebenläufigkeitstests deterministisch und reproduzierbar, wodurch komplexe Tricks mit Sleeps und Kanälen überflüssig werden. Durch die automatische Erkundung aller Scheduling-Pfade werden seltene Race-Bedingungen zuverlässig entdeckt. Als Teil des Go-Standards seit Version 1.21 integriert sich das Paket nahtlos in bestehende Projekte.
+
+Gleichzeitig erfordert der Einsatz von `synctest` ein Umdenken, da man sich mit Scheduling-Traces und Exploration auseinandersetzen muss. Zudem kann die vollständige Exploration die Testlaufzeit erhöhen. Da `synctest` deterministische Szenarien abdeckt, ersetzt es jedoch nicht die klassische Race-Detection mit `go test -race`, sondern ergänzt diese.
+
+## Relevanz für die Praxis
+
+Durch die Möglichkeit, Concurrency-Bugs systematisch aufzuspüren und zu reproduzieren, steigt die Zuverlässigkeit von Bibliotheken und Anwendungen deutlich. Entwickler profitieren von flackerfreien Tests und können seltene Race-Zustände gezielt untersuchen, was Zeit spart und die Softwarequalität verbessert.
+
+## Einrichtung der Entwicklungsumgebung
+
+Um `synctest` zu nutzen, wurde für dieses Projekt Go 1.24.1 für Windows installiert. Außerdem wurde die GoLand IDE verwendet  das Projekt mit einem GitHub-Repository zur Versionskontrolle verbunden. In der IDE musste nun das Experiment aktiviert werden. Entweder durch setzen einer Umgebungsvariable in der IDE oder durch das Ausführen von:
+
+```bash
+export GOEXPERIMENT=synctest
+```
+
+Anschließend können die Tests wie gewohnt mit `go test ./...` oder über die IDE ausgeführt werden.
+
+## Screenshot
+
+![Testresult Screenshot](./images/testresult.PNG)
